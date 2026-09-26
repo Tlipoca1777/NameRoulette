@@ -1,0 +1,44 @@
+# ===== 打包与构建产物（改用 GitHub Releases 分发，不入库）=====
+build/
+dist/
+发布/*.exe
+发布/*.zip
+
+# ===== 运行时数据与日志 =====
+# data.db / 备份_data_*.db 里是真实学生名单（姓名 + 学号），绝不能推到公开仓库
+*.db
+*.db-journal
+*.sqlite
+app_gui.log
+*.log
+
+# ===== 教务导出的真实数据 =====
+# 学生个人课表等 PDF/Excel 导出文件，含真实姓名与学号
+旧版课表（已过时）/
+备份_data_*.db
+/导出/
+
+# ===== 单文件网页版：只在本地保留，不发布 =====
+# 桌面版 exe 仍然需要 web/index.html，那一个不能忽略
+发布/*.html
+web/standalone.js
+gen_html.py
+tests/test_standalone.mjs
+tests/check_xlsx.py
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ===== 编辑器与本地工具目录 =====
+.workbuddy/
+.zcode/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

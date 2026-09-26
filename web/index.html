@@ -1,0 +1,1801 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>随机抽人</title>
+<style>
+  :root {
+    --bg-0: #f7f8fb;
+    --bg-1: #eef2f7;
+    --panel: rgba(15, 23, 42, .035);
+    --panel-line: rgba(15, 23, 42, .12);
+    --text: #1e293b;
+    --text-dim: #64748b;
+    --accent: #b26a00;
+    --accent-soft: rgba(245, 179, 1, .14);
+    --blue: #2563eb;
+    --green: #059669;
+    --red: #dc2626;
+    --radius: 14px;
+    /* 字号阶梯：品牌 / 分区标题 / 正文 / 辅助 / 极小 */
+    --fs-brand: 17px;
+    --fs-h3: 14.5px;
+    --fs-body: 14px;
+    --fs-sub: 13px;
+    --fs-tiny: 11.5px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC", sans-serif;
+    background: radial-gradient(1200px 700px at 22% -10%, #e6ecf5 0%, var(--bg-1) 42%, var(--bg-0) 100%);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid var(--panel-line);
+    background: var(--panel);
+    color: var(--text);
+    border-radius: 9px;
+    padding: 8px 15px;
+    font-size: var(--fs-body);
+    transition: background .15s, border-color .15s, transform .08s, opacity .15s;
+  }
+  button:hover:not(:disabled) { background: rgba(15, 23, 42, .09); border-color: rgba(15, 23, 42, .16); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .38; cursor: not-allowed; }
+  button.primary {
+    background: linear-gradient(180deg, #ffc93c, #f0a500);
+    color: #2a1c00; border-color: #f0a500; font-weight: 700;
+  }
+  button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #ffd45c, #ffb200); }
+  button.danger { color: var(--red); border-color: rgba(248,113,113,.35); }
+  button.danger:hover:not(:disabled) { background: rgba(248,113,113,.14); }
+  button.ghost { background: transparent; }
+  button.tiny { padding: 4px 10px; font-size: var(--fs-sub); border-radius: 7px; }
+
+  input[type=text], select {
+    font-family: inherit; font-size: var(--fs-body);
+    background: rgba(15, 23, 42, .05); color: var(--text);
+    border: 1px solid var(--panel-line); border-radius: 7px;
+    padding: 6px 9px; width: 100%;
+  }
+  input[type=text]:focus, select:focus { outline: none; border-color: var(--blue); background: rgba(15, 23, 42, .07); }
+
+  /* ---------------------------------------------------------- 顶栏 */
+  .toolbar {
+    display: flex; align-items: center; gap: 18px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--panel-line);
+    background: rgba(255, 255, 255, .82);
+    backdrop-filter: blur(10px);
+    flex-wrap: wrap;
+  }
+  .brand { font-size: var(--fs-brand); font-weight: 700; letter-spacing: .12em; color: var(--accent); white-space: nowrap; }
+
+  .tabs { display: flex; gap: 4px; background: rgba(15, 23, 42, .05); padding: 3px; border-radius: 10px; }
+  .tabs button { border: none; background: transparent; padding: 6px 15px; border-radius: 8px; color: var(--text-dim); }
+  .tabs button.active { background: rgba(15, 23, 42, .10); color: var(--text); font-weight: 600; }
+
+  .counters { display: flex; gap: 22px; margin-left: auto; align-items: center; }
+  .counter { text-align: center; line-height: 1.25; }
+  .counter b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .counter span { font-size: var(--fs-tiny); color: var(--text-dim); letter-spacing: .06em; }
+  .counter.hl b { color: var(--accent); }
+
+  .progress { width: 130px; height: 5px; border-radius: 3px; background: rgba(15, 23, 42, .10); overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #b26a00, #ffd66b); transition: width .35s ease; }
+
+  .toggle { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sub); color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+  .toggle input { accent-color: var(--accent); cursor: pointer; }
+
+  /* ---------------------------------------------------------- 布局 */
+  main { height: calc(100% - 61px); }
+  .view { height: 100%; }
+  /* 两个视图用 ID 选择器设了 display（优先级 1,0,0），会压过 .view[hidden]（0,2,0），
+     导致 hidden 属性对 display 失效、页面切不动、名单页被挤到视口外面。
+     必须用同等级或更高的选择器，删掉这几行会让「名单管理」整页点不到。 */
+  .view[hidden],
+  #view-draw[hidden],
+  #view-roster[hidden],
+  #view-schedule[hidden] { display: none; }
+
+  #view-draw { display: grid; grid-template-columns: 1fr 366px; }
+
+  /* ---------------------------------------------------------- 抽取台 */
+  .stage {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 24px 32px; gap: 8px; position: relative; text-align: center;
+  }
+  .stage::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(560px 300px at 50% 44%, rgba(37, 99, 235, .07), transparent 72%);
+    pointer-events: none;
+  }
+
+  .hint { font-size: var(--fs-body); color: var(--text-dim); letter-spacing: .05em; min-height: 20px; }
+
+  .name {
+    font-size: clamp(56px, 11vw, 148px);
+    font-weight: 800;
+    line-height: 1.12;
+    letter-spacing: .03em;
+    color: #1e293b;
+    text-shadow: 0 6px 34px rgba(15, 23, 42, .18);
+    transition: color .18s, transform .18s;
+    word-break: break-all;
+  }
+  .name.idle { color: var(--text-dim); font-size: clamp(30px, 4.4vw, 54px); font-weight: 600; }
+  .name.rolling { color: #94a3b8; filter: blur(.6px); }
+  .name.revealed {
+    color: var(--accent);
+    animation: pop .5s cubic-bezier(.2, 1.5, .4, 1);
+    text-shadow: 0 0 46px rgba(245,179,1,.42), 0 6px 34px rgba(15, 23, 42, .18);
+  }
+  @keyframes pop {
+    0%   { transform: scale(.62); opacity: .2; }
+    55%  { transform: scale(1.09); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  .meta { font-size: 16px; color: var(--text-dim); letter-spacing: .1em; min-height: 22px; font-variant-numeric: tabular-nums; }
+
+  .draw-btn {
+    margin-top: 22px;
+    font-size: 25px; font-weight: 800; letter-spacing: .3em;
+    padding: 17px 62px 17px 66px;
+    border: none; border-radius: 16px;
+    background: linear-gradient(180deg, #ffc93c, #eda200);
+    color: #2a1c00;
+    box-shadow: 0 12px 34px rgba(240,166,0,.34);
+  }
+  .draw-btn:hover:not(:disabled) { background: linear-gradient(180deg, #ffd75f, #ffb400); box-shadow: 0 14px 40px rgba(240,166,0,.46); }
+  .draw-btn:disabled { background: rgba(15, 23, 42, .09); color: var(--text-dim); box-shadow: none; }
+
+  /* ---------------------------------------------------------- 历史 */
+  .history {
+    border-left: 1px solid var(--panel-line);
+    background: rgba(15, 23, 42, .045);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .history-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 13px 15px; border-bottom: 1px solid var(--panel-line);
+  }
+  .history-head h2 { font-size: var(--fs-body); letter-spacing: .1em; color: var(--text-dim); font-weight: 600; }
+  .hint-inline { margin-left: auto; font-size: var(--fs-sub); color: var(--text-dim); }
+
+  /* 日期分组标题 */
+  .hgroup {
+    display: flex; align-items: center; gap: 8px;
+    padding: 13px 4px 6px; margin-top: 2px;
+    font-size: var(--fs-sub); font-weight: 600; letter-spacing: .04em;
+    color: var(--accent);
+    border-bottom: 1px solid rgba(15, 23, 42, .07);
+  }
+  .hgroup:first-child { padding-top: 3px; }
+  .hgroup.past { color: var(--text-dim); }
+  .hcount { margin-left: auto; font-size: var(--fs-tiny); font-weight: 400; color: var(--text-dim); }
+  .hround {
+    margin-left: 6px; padding: 1px 6px; border-radius: 20px;
+    font-size: var(--fs-tiny); font-weight: 400; vertical-align: 2px;
+    background: rgba(15, 23, 42, .09); color: var(--text-dim);
+  }
+  .history-head select { width: auto; margin-left: auto; font-size: var(--fs-sub); padding: 4px 7px; }
+
+  .history-list { list-style: none; overflow-y: auto; flex: 1; padding: 8px; }
+  .history-list::-webkit-scrollbar { width: 8px; }
+  .history-list::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, .11); border-radius: 4px; }
+
+  .hitem {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 10px; margin-bottom: 6px;
+    background: #ffffff; border: 1px solid var(--panel-line);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+    animation: slidein .3s ease;
+  }
+  @keyframes slidein { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+  .hitem.newest {
+    border-color: rgba(226, 154, 0, .55); background: var(--accent-soft);
+    box-shadow: 0 2px 8px rgba(226, 154, 0, .16);
+  }
+  .hseq {
+    flex: none; width: 25px; height: 25px; border-radius: 7px;
+    display: grid; place-items: center;
+    background: rgba(15, 23, 42, .09); font-size: var(--fs-tiny); color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .hmain { min-width: 0; flex: 1; }
+  .hname {
+    display: flex; align-items: baseline; gap: 6px;
+    font-size: 15px; font-weight: 600;
+  }
+  .hwho { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .htime {
+    margin-left: auto; flex: none;
+    font-size: var(--fs-sub); font-weight: 400; color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .hsub { font-size: var(--fs-sub); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .empty-note { padding: 30px 16px; text-align: center; color: var(--text-dim); font-size: var(--fs-body); line-height: 1.9; }
+
+  /* ---------------------------------------------------------- 名单管理 */
+  #view-roster { display: flex; flex-direction: column; padding: 20px 24px; gap: 16px; min-height: 0; }
+  .roster-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  /* 设置类项目收进一张卡片：与「操作按钮」在视觉上分开，也只有一个保存 */
+  .settings-bar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 16px; border-radius: 12px;
+    background: #ffffff; border: 1px solid var(--panel-line);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+  }
+  .settings-bar .st-title {
+    font-size: var(--fs-sub); font-weight: 700; color: var(--text-dim);
+    letter-spacing: .12em; padding-right: 16px;
+    border-right: 1px solid var(--panel-line);
+  }
+  /* 批量操作条：有勾选时才出现 */
+  .sel-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-radius: 10px;
+    background: var(--accent-soft); border: 1px solid rgba(226, 154, 0, .45);
+    font-size: var(--fs-sub); color: var(--text);
+  }
+  .sel-bar b { font-size: var(--fs-body); color: var(--accent); }
+  tbody input[type=checkbox], thead input[type=checkbox] {
+    width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer;
+  }
+  /* 工具栏里的次要按钮：小一号，和主操作拉开层级 */
+  button.sm { padding: 6px 12px; font-size: var(--fs-sub); border-radius: 8px; }
+  .roster-bar input[type=text] { width: 190px; }
+  .roster-bar .spacer { margin-left: auto; }
+
+  .table-wrap { flex: 1; overflow: auto; border: 1px solid var(--panel-line); border-radius: var(--radius); background: rgba(15, 23, 42, .04); min-height: 0; }
+  .table-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
+  .table-wrap::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, .12); border-radius: 5px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: var(--fs-body); }
+  thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: #eef2f7; color: var(--text-dim);
+    font-weight: 600; font-size: var(--fs-tiny); letter-spacing: .08em;
+    text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--panel-line);
+    white-space: nowrap;
+  }
+  tbody td { padding: 4px 12px; border-bottom: 1px solid rgba(15, 23, 42, .04); }
+  tbody tr:hover { background: rgba(15, 23, 42, .03); }
+  tbody input[type=text] { background: transparent; border-color: transparent; padding: 5px 7px; }
+  tbody input[type=text]:hover { border-color: var(--panel-line); }
+  tbody input[type=text]:focus { background: rgba(15, 23, 42, .07); border-color: var(--blue); }
+
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: var(--fs-tiny); white-space: nowrap; }
+  .pill.pool { background: rgba(52,211,153,.16); color: var(--green); }
+  .pill.drawn { background: rgba(245,179,1,.16); color: var(--accent); }
+  .pill.off { background: rgba(15, 23, 42, .07); color: var(--text-dim); }
+  .row-ops { display: flex; gap: 5px; justify-content: flex-end; }
+  .dim { color: var(--text-dim); }
+
+  /* ---------------------------------------------------------- 当前时段与池子说明 */
+  .nowline {
+    font-size: var(--fs-sub); color: var(--text-dim); letter-spacing: .04em;
+    margin-bottom: 2px; min-height: 18px;
+  }
+  .nowline b { color: var(--accent); font-weight: 600; }
+
+  .pool-note {
+    margin-top: 16px; max-width: 640px;
+    font-size: var(--fs-body); line-height: 1.9; color: var(--text-dim);
+    text-align: center;
+  }
+  .pool-note .num { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pool-note .hl { color: var(--accent); font-weight: 700; }
+  .pool-note.warn {
+    border: 1px solid rgba(245,179,1,.34); background: var(--accent-soft);
+    border-radius: 10px; padding: 12px 16px; color: #8a5a00; text-align: left;
+  }
+  .override { margin-top: 14px; font-size: var(--fs-sub); }
+
+  input[type=date] {
+    font-family: inherit; font-size: var(--fs-body); background: rgba(15, 23, 42, .05);
+    color: var(--text); border: 1px solid var(--panel-line);
+    border-radius: 7px; padding: 5px 7px;
+  }
+  input[type=date]:focus { outline: none; border-color: var(--blue); }
+  .week-flag {
+    display: block; margin-top: 2px; font-size: var(--fs-tiny); line-height: 1.35;
+    color: #2563eb;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 68px;
+  }
+  .warn-line {
+    display: block; margin-bottom: 6px; color: var(--accent);
+  }
+
+  /* ---------------------------------------------------------- 课表页 */
+  #view-schedule { display: flex; flex-direction: column; padding: 20px 24px; gap: 20px; min-height: 0; overflow: auto; }
+  .sched-wrap h3 {
+    font-size: var(--fs-h3); color: var(--text); font-weight: 700;
+    letter-spacing: .06em; margin-bottom: 12px;
+  }
+  .sched-wrap h3 span { font-weight: 400; font-size: var(--fs-sub); letter-spacing: 0; color: var(--text-dim); }
+  .inline-field { font-size: var(--fs-sub); color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+  .inline-field input[type=text] { width: 58px; text-align: center; }
+  .inline-field input[type=time] { width: 104px; }
+  input[type=time] {
+    font-family: inherit; font-size: var(--fs-body); background: rgba(15, 23, 42, .05);
+    color: var(--text); border: 1px solid var(--panel-line);
+    border-radius: 7px; padding: 5px 7px;
+  }
+  input[type=time]:focus { outline: none; border-color: var(--blue); }
+
+  table.blocks-table, table.sched-grid, table.exc-table { font-size: var(--fs-body); }
+  table.blocks-table td, table.sched-grid td, table.exc-table td { padding: 8px 12px; }
+  table.blocks-table input[type=text] { width: 100%; }
+  .grid-scroll { overflow-x: auto; border: 1px solid var(--panel-line); border-radius: var(--radius); }
+  .grid-scroll::-webkit-scrollbar { height: 10px; }
+  .grid-scroll::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, .12); border-radius: 5px; }
+
+  table.sched-grid th { text-align: center; font-size: var(--fs-tiny); padding: 9px 6px; }
+  /* 天与天之间加一条竖线：28 列的网格不加分隔很难看出哪列属于星期几 */
+  table.sched-grid th.day-start, table.sched-grid td.day-start {
+    border-left: 2px solid rgba(15, 23, 42, .13);
+  }
+  table.sched-grid tbody tr { height: 46px; }
+  table.sched-grid th.cls-h, table.sched-grid td.cls-c {
+    position: sticky; left: 0; z-index: 1;
+    background: #eef2f7; text-align: left; white-space: nowrap;
+    min-width: 118px; padding-right: 16px;
+    box-shadow: 6px 0 8px -6px rgba(15, 23, 42, .16);   /* 滚动时和内容分开 */
+  }
+  table.sched-grid td.cls-c { font-weight: 600; }
+  table.sched-grid thead th { background: #eef2f7; }
+  table.sched-grid thead tr:first-child th { border-bottom: 1px solid rgba(15, 23, 42, .09); }
+  td.cell { text-align: center; cursor: pointer; user-select: none; padding: 9px 4px; min-width: 46px; }
+  td.cell .box {
+    display: inline-block; width: 20px; height: 20px; line-height: 19px;
+    border: 1px solid var(--panel-line); border-radius: 5px;
+    background: rgba(15, 23, 42, .05); color: transparent; font-size: var(--fs-sub);
+  }
+  td.cell:hover .box { border-color: rgba(15, 23, 42, .26); }
+  td.cell.on .box {
+    background: linear-gradient(180deg, #ffc93c, #f0a500);
+    border-color: #f0a500; color: #2a1c00;
+  }
+  td.cell.saving { opacity: .5; }
+  td.cell.has-note .box::after { content: ""; }
+  .note-flag {
+    display: block; margin-top: 3px; font-size: var(--fs-tiny); line-height: 1.35;
+    color: var(--accent);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 68px;
+  }
+  .exc-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .exc-form select {
+    font-family: inherit; font-size: var(--fs-body); background: rgba(15, 23, 42, .05);
+    color: var(--text); border: 1px solid var(--panel-line);
+    border-radius: 7px; padding: 6px 9px; max-width: 220px;
+  }
+  .exc-form select:focus { outline: none; border-color: var(--blue); }
+  .badge-busy {
+    display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 20px;
+    font-size: var(--fs-tiny); background: rgba(245,179,1,.16); color: var(--accent);
+  }
+
+  /* ---------------------------------------------------------- 弹窗 / 提示 */
+  .overlay {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(15, 23, 42, .45); backdrop-filter: blur(3px);
+    display: grid; place-items: center; padding: 24px;
+  }
+  .overlay[hidden] { display: none; }
+  .modal {
+    background: #ffffff; border: 1px solid var(--panel-line);
+    border-radius: var(--radius); padding: 22px;
+    width: min(480px, 100%); box-shadow: 0 24px 70px rgba(15, 23, 42, .18);
+    animation: pop .22s ease;
+  }
+  .modal h3 { font-size: var(--fs-brand); margin-bottom: 10px; }
+  .modal p { font-size: var(--fs-body); color: var(--text-dim); line-height: 1.75; }
+  .modal textarea {
+    width: 100%; height: 190px; margin-top: 12px; resize: vertical;
+    font-family: Consolas, "Courier New", monospace; font-size: var(--fs-body);
+    background: rgba(15, 23, 42, .06); color: var(--text);
+    border: 1px solid var(--panel-line); border-radius: 9px; padding: 10px;
+  }
+  .modal textarea:focus { outline: none; border-color: var(--blue); }
+  .modal-ops { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
+
+  .toasts { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+  .toast {
+    background: #ffffff; border: 1px solid var(--panel-line);
+    border-left: 3px solid var(--blue);
+    padding: 11px 18px; border-radius: 10px; font-size: var(--fs-body);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, .07); max-width: 620px;
+    animation: toastin .25s ease;
+  }
+  .toast.ok { border-left-color: var(--green); }
+  .toast.warn { border-left-color: var(--accent); }
+  .toast.err { border-left-color: var(--red); }
+  @keyframes toastin { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+
+<header class="toolbar">
+  <div class="brand">随机抽人</div>
+
+  <nav class="tabs">
+    <button data-view="draw" class="active">抽取</button>
+    <button data-view="roster">名单管理</button>
+    <button data-view="schedule">课表</button>
+  </nav>
+
+  <div class="counters">
+    <div class="counter hl"><b id="c-available">–</b><span>此刻可抽</span></div>
+    <div class="counter"><b id="c-untalked">–</b><span>未谈</span></div>
+    <div class="counter"><b id="c-total">–</b><span>总人数</span></div>
+    <div class="counter"><b id="c-round">–</b><span>当前学期</span></div>
+    <div class="progress" title="本学期谈话进度"><i id="c-progress"></i></div>
+  </div>
+
+  <div class="roster-bar-actions" style="display:flex; gap:8px; align-items:center;">
+    <label class="toggle"><input type="checkbox" id="chk-sound"> 音效</label>
+    <button id="btn-reset">开始新学期</button>
+    <button id="btn-export" class="sm">导出记录</button>
+  </div>
+</header>
+
+<main>
+  <!-- ============================================ 抽取 -->
+  <section class="view" id="view-draw">
+    <div class="stage">
+      <div class="nowline" id="nowline"></div>
+      <div class="hint" id="hint">按 空格 或 回车 也可以抽取</div>
+      <div class="name idle" id="display-name">准备就绪</div>
+      <div class="meta" id="display-meta"></div>
+      <button class="draw-btn" id="btn-draw">开 始 抽 取</button>
+      <div class="pool-note" id="pool-note"></div>
+      <label class="toggle override" id="override-wrap" hidden>
+        <input type="checkbox" id="chk-ignore"> 忽略课表，强制抽取
+      </label>
+    </div>
+
+    <aside class="history">
+      <div class="history-head">
+        <h2>抽取历史</h2>
+        <span class="hint-inline" id="history-hint"></span>
+      </div>
+      <ol class="history-list" id="history-list"></ol>
+    </aside>
+  </section>
+
+  <!-- ============================================ 名单管理 -->
+  <section class="view" id="view-roster" hidden>
+    <div class="roster-bar">
+      <button id="btn-import-file" class="primary">导入名单（Excel / CSV）</button>
+      <button id="btn-import-paste" class="sm">粘贴文本导入</button>
+      <button id="btn-add" class="sm">新增学生</button>
+      <input type="text" id="roster-search" placeholder="搜索姓名 / 学号 / 班级">
+      <span class="dim" id="roster-count" style="font-size:var(--fs-sub)"></span>
+      <div class="spacer"></div>
+      <button id="btn-backup-out" class="ghost sm">导出备份</button>
+      <button id="btn-backup-in" class="ghost sm">导入备份</button>
+      <button id="btn-clear" class="danger ghost sm">清空名单</button>
+    </div>
+    <div class="sel-bar" id="sel-bar" hidden>
+      已选 <b id="sel-count">0</b> 人
+      <button id="btn-sel-disable" class="sm">停用</button>
+      <button id="btn-sel-enable" class="sm">启用</button>
+      <button id="btn-sel-delete" class="danger sm">删除</button>
+      <div class="spacer"></div>
+      <button id="btn-sel-clear" class="ghost sm">取消选择</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:38px"><input type="checkbox" id="chk-all" title="全选 / 取消全选（只作用于当前筛选出的行）"></th>
+            <th style="width:44px">#</th>
+            <th style="width:150px">姓名</th>
+            <th style="width:170px">学号</th>
+            <th style="width:170px">班级</th>
+            <th style="width:92px">状态</th>
+            <th style="width:190px; text-align:right">操作</th>
+          </tr>
+        </thead>
+        <tbody id="roster-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================ 课表 -->
+  <section class="view" id="view-schedule" hidden>
+    <div class="roster-bar">
+      <button id="btn-sched-import" class="primary">导入课表(Excel / CSV)</button>
+      <button id="btn-sched-export" class="ghost sm">导出课表</button>
+      <button id="btn-sched-clear" class="danger ghost sm">清空课表</button>
+      <span class="dim" id="sched-hint" style="font-size:var(--fs-sub)"></span>
+      <div class="spacer"></div>
+      <label class="toggle"><input type="checkbox" id="chk-edit-weeks"> 编辑周次</label>
+      <span class="dim" style="font-size:var(--fs-sub)">勾选后点方格可填周次（如 1-8,10-16 或 单/双）</span>
+    </div>
+
+    <div class="settings-bar">
+      <span class="st-title">设置</span>
+      <label class="inline-field">第 1 周从
+        <input type="date" id="inp-term-start">
+        开始
+      </label>
+      <label class="inline-field">离下节课不足
+        <input type="text" id="inp-min-talk"> 分钟不算空闲
+      </label>
+      <button id="btn-save-settings" class="primary sm">保存设置</button>
+      <span class="dim" id="week-hint" style="font-size:var(--fs-sub)"></span>
+      <div class="spacer"></div>
+      <button id="btn-clear-own" class="danger ghost sm">清除个人课表</button>
+    </div>
+
+    <div class="sched-wrap">
+      <h3>作息时间 <span>（按学校实际时间填。大课区间含中间那 10 分钟课间，所以课间也算上课期间）</span></h3>
+      <div class="dim" id="sched-owner" style="font-size:var(--fs-sub);margin-bottom:8px"></div>
+      <table class="blocks-table" id="blocks-table"></table>
+    </div>
+
+    <div class="sched-wrap">
+      <h3>课表 <span>（点方格切换：橙色 = 该班这个时段有课）</span></h3>
+      <div class="grid-scroll"><table class="sched-grid" id="sched-grid"></table></div>
+    </div>
+
+    <div class="sched-wrap">
+      <h3>个别学生例外 <span>（选修课等原因导致与全班不同时用）</span></h3>
+      <div class="exc-form" id="exc-form"></div>
+      <table class="exc-table" id="exc-table"></table>
+    </div>
+  </section>
+</main>
+
+<div class="overlay" id="modal" hidden>
+  <div class="modal">
+    <h3 id="modal-title"></h3>
+    <p id="modal-text"></p>
+    <textarea id="modal-input" hidden></textarea>
+    <div class="modal-ops">
+      <button id="modal-cancel">取消</button>
+      <button id="modal-ok" class="primary">确定</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+
+/* ================================================================
+   后端调用适配层。
+   pywebview 走 JS 桥；HTTP 外壳走 fetch；
+   网页版由 gen_html.py 把 BEGIN/END 之间的内容整体换成纯 JS 实现。
+
+   注意：pywebview 6.x 会用内置 HTTP 服务加载本地 HTML，
+   所以 location.protocol 是 http:，不能据此判断外壳类型，
+   必须靠 pywebviewready 事件或实际探测。
+   ================================================================ */
+/* ==BEGIN ADAPTER== */
+let SHELL = null;          // "pywebview" | "http"
+
+/** 等 JS 桥注入。pywebview 是在页面加载之后才注入的，
+ *  冷启动（尤其 onefile 首次解压）可能要好几秒，等太短会误判。 */
+function waitForBridge(timeoutMs) {
+  return new Promise((resolve) => {
+    if (window.pywebview && window.pywebview.api) return resolve(true);
+    let settled = false;
+    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const timer = setTimeout(() => finish(!!(window.pywebview && window.pywebview.api)),
+                             timeoutMs);
+    window.addEventListener("pywebviewready", () => { clearTimeout(timer); finish(true); },
+                            { once: true });
+  });
+}
+
+async function resolveShell() {
+  // 每次先看桥在不在：桥可能比预期晚到，别让先前缓存的外壳类型把请求带偏
+  if (window.pywebview && window.pywebview.api) return (SHELL = "pywebview");
+  if (SHELL) return SHELL;
+  if (window.__SHELL__) return (SHELL = window.__SHELL__);
+
+  const ready = await waitForBridge(8000);
+  if (ready) return (SHELL = "pywebview");
+
+  // 没有 pywebview 事件，探测一下 HTTP 外壳是否在线
+  try {
+    const resp = await fetch("/api/state", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "[]",
+    });
+    if ((resp.headers.get("content-type") || "").includes("application/json")) {
+      return (SHELL = "http");
+    }
+  } catch (e) { /* 落到兜底 */ }
+  return (SHELL = "pywebview");
+}
+
+async function call(method, ...args) {
+  if (!SHELL) await resolveShell();
+
+  if (SHELL === "pywebview") {
+    let bridge = window.pywebview && window.pywebview.api;
+    if (!bridge || typeof bridge[method] !== "function") {
+      // 桥可能还没注入完，等一下再试，不要立刻放弃
+      await waitForBridge(8000);
+      bridge = window.pywebview && window.pywebview.api;
+    }
+    if (!bridge || typeof bridge[method] !== "function") {
+      throw new Error(`后端接口 ${method} 不可用（JS 桥未就绪）`);
+    }
+    return await bridge[method](...args);
+  }
+
+  const resp = await fetch("/api/" + method, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  const data = await resp.json();
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+/* ==END ADAPTER== */
+
+const $ = (id) => document.getElementById(id);
+
+/* ---------------------------------------------------------- 状态 */
+const S = {
+  stats: { total: 0, remaining: 0, drawn: 0, disabled: 0, round: 1 },
+  students: [],
+  history: [],
+  rounds: [],
+  poolNames: [],
+  stageName: null,   // 当前大屏显示的名字
+  busy: false,
+  selected: new Set(),   // 名单里勾选的学生 id
+};
+
+let soundOn = false;
+
+/* ---------------------------------------------------------- 提示 */
+function toast(msg, kind = "info", ms = 3200) {
+  const el = document.createElement("div");
+  el.className = "toast " + kind;
+  el.textContent = msg;
+  $("toasts").appendChild(el);
+  setTimeout(() => {
+    el.style.transition = "opacity .3s";
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 320);
+  }, ms);
+}
+
+/* 自建确认框：pywebview 下原生 confirm 不可靠 */
+function ask(title, text, okText = "确定") {
+  return new Promise((resolve) => {
+    $("modal-title").textContent = title;
+    $("modal-text").textContent = text;
+    $("modal-input").hidden = true;
+    $("modal-ok").textContent = okText;
+    $("modal-ok").className = "primary";
+    $("modal").hidden = false;
+
+    const done = (val) => {
+      $("modal").hidden = true;
+      $("modal-ok").onclick = null;
+      $("modal-cancel").onclick = null;
+      resolve(val);
+    };
+    $("modal-ok").onclick = () => done(true);
+    $("modal-cancel").onclick = () => done(false);
+  });
+}
+
+function askText(title, text, placeholder = "") {
+  return new Promise((resolve) => {
+    $("modal-title").textContent = title;
+    $("modal-text").textContent = text;
+    const ta = $("modal-input");
+    ta.hidden = false;
+    ta.value = "";
+    ta.placeholder = placeholder;
+    $("modal-ok").textContent = "导入";
+    $("modal-ok").className = "primary";
+    $("modal").hidden = false;
+    ta.focus();
+
+    const done = (val) => {
+      $("modal").hidden = true;
+      $("modal-ok").onclick = null;
+      $("modal-cancel").onclick = null;
+      resolve(val);
+    };
+    $("modal-ok").onclick = () => done(ta.value);
+    $("modal-cancel").onclick = () => done(null);
+  });
+}
+
+/* ---------------------------------------------------------- 音效 */
+let audioCtx = null;
+function beep() {
+  if (!soundOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, t);
+    osc.frequency.exponentialRampToValueAtTime(1320, t + 0.11);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.36);
+  } catch (e) { /* 音频不可用时静默忽略，不影响抽取 */ }
+}
+
+/* ================================================================
+   刷新与渲染
+   ================================================================ */
+async function refresh() {
+  const data = await call("state", $("chk-ignore").checked);
+  S.stats = data.stats;
+  S.students = data.students;
+  S.history = data.history;
+  S.rounds = data.rounds;
+  S.poolNames = data.poolNames;
+  S.pool = data.pool;
+  S.now = data.now;
+  S.currentBlock = data.currentBlock;
+  S.scheduleConfigured = data.scheduleConfigured;
+  S.week = data.week;
+  S.termStart = data.termStart;
+  S.nextFree = data.nextFree;
+  S.nextBlock = data.nextBlock;
+
+  renderStats();
+  renderHistory();
+  renderRoster();
+  renderDrawButton();
+}
+
+function renderStats() {
+  const c = (S.pool && S.pool.counts) || {};
+  const p = S.pool || {};
+  $("c-available").textContent = c.available != null ? c.available : "–";
+  $("c-untalked").textContent = p.untalked != null ? p.untalked : "–";
+  $("c-total").textContent = S.stats.total;
+  $("c-round").textContent = S.stats.round;
+  const done = S.stats.total ? ((c.drawn || 0) / S.stats.total) * 100 : 0;
+  $("c-progress").style.width = done + "%";
+  renderNow();
+  renderPoolNote();
+}
+
+function renderDrawButton() {
+  const btn = $("btn-draw");
+  if (S.busy) {
+    btn.disabled = true;
+    return;
+  }
+  if (S.stats.total === 0) {
+    btn.disabled = true;
+    btn.textContent = "请先导入名单";
+    $("hint").textContent = "还没有名单，请到「名单管理」导入";
+    return;
+  }
+  const avail = (S.pool && S.pool.counts) ? S.pool.counts.available : 0;
+  if (avail === 0) {
+    btn.disabled = true;
+    btn.textContent = "此 刻 无 人 可 抽";
+    $("hint").textContent = "原因见下方说明";
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = "开 始 抽 取";
+  $("hint").textContent = "按 空格 或 回车 也可以抽取";
+}
+
+/* ---------------------------------------------------------- 日期工具 */
+const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+/** 本地日期 "YYYY-MM-DD" */
+function ymd(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function todayStr() { return ymd(new Date()); }
+
+function yesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return ymd(d);
+}
+
+/** 从 "2026-09-17 08:03:12" 取出日期部分。 */
+function dateOf(stamp) { return String(stamp || "").slice(0, 10); }
+
+/** 日期的中文短标签：9月17日 周三（跨年才带年份） */
+function shortDate(day) {
+  const parts = String(day).split("-").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return String(day || "日期未知");
+  const d = new Date(parts[0], parts[1] - 1, parts[2]);
+  const base = `${parts[1]}月${parts[2]}日 周${WEEKDAYS[d.getDay()]}`;
+  return parts[0] === new Date().getFullYear() ? base : `${parts[0]}年${base}`;
+}
+
+/** 分组标题用的标签：今天 / 昨天 / 9月17日 周三 */
+function dateLabel(day) {
+  if (day === todayStr()) return `今天 · ${shortDate(day)}`;
+  if (day === yesterdayStr()) return `昨天 · ${shortDate(day)}`;
+  return shortDate(day);
+}
+
+/** 空闲状态显示今天日期，让人一眼知道当前是哪天。 */
+function idleMeta() { return `今天 · ${shortDate(todayStr())}`; }
+
+function renderHistory() {
+  const box = $("history-list");
+
+  if (!S.history.length) {
+    box.innerHTML = `<div class="empty-note">还没有抽取记录<br>点「开始抽取」试试</div>`;
+    $("history-hint").textContent = "";
+    return;
+  }
+
+  // 按日期分组，最近的日期排在上面；同一天内按抽取先后正序
+  const groups = new Map();
+  for (const h of S.history) {
+    const day = dateOf(h.drawn_at);
+    if (!groups.has(day)) groups.set(day, []);
+    groups.get(day).push(h);
+  }
+  const days = [...groups.keys()].sort().reverse();
+  const today = todayStr();
+
+  // 最近一次抽取高亮（时间字符串可直接比较）
+  let newestId = null, newestStamp = "";
+  for (const h of S.history) {
+    const s = String(h.drawn_at || "");
+    if (newestId === null || s >= newestStamp) { newestId = h.id; newestStamp = s; }
+  }
+
+  box.innerHTML = days
+    .map((day) => {
+      const items = groups.get(day);
+      const head = `<li class="hgroup${day === today ? "" : " past"}">
+          <span>${esc(dateLabel(day))}</span>
+          <span class="hcount">${items.length} 人</span>
+        </li>`;
+      const rows = items
+        .map((h) => {
+          const sub = [h.sid, h.cls].filter(Boolean).join(" · ");
+          const isCurrent = h.round === S.stats.round;
+          const roundTag = isCurrent
+            ? ""
+            : `<span class="hround">第${h.round}学期</span>`;
+          return `<li class="hitem${h.id === newestId ? " newest" : ""}">
+            <span class="hseq">${h.seq}</span>
+            <span class="hmain">
+              <div class="hname" title="${esc(h.name)} ${esc(String(h.drawn_at).slice(11, 19))}">
+                <span class="hwho">${esc(h.name)}${roundTag}</span>
+                <span class="htime">${esc(String(h.drawn_at).slice(11, 16))}</span>
+              </div>
+              <div class="hsub" title="${esc(sub)}">${sub ? esc(sub) : "&nbsp;"}</div>
+            </span>
+            <button class="tiny ghost" data-undo="${h.id}"
+              ${isCurrent ? "" : 'disabled title="只能撤回当前学期的记录"'}>撤回</button>
+          </li>`;
+        })
+        .join("");
+      return head + rows;
+    })
+    .join("");
+
+  const todayCount = (groups.get(today) || []).length;
+  $("history-hint").textContent = todayCount
+    ? `今天已抽 ${todayCount} 人`
+    : "今天还没抽";
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+/** 批量操作条：有勾选时才显示；全选框反映当前筛选结果的选择情况。 */
+function renderSelBar(rows) {
+  const list = rows || rosterFiltered();
+  const ids = list.map((s) => s.id);
+  const picked = ids.filter((id) => S.selected.has(id));
+  // 顺手清掉已不存在的 id（比如刚被删掉的学生）
+  if (S.students.length) {
+    const alive = new Set(S.students.map((s) => s.id));
+    Array.from(S.selected).forEach((id) => { if (!alive.has(id)) S.selected.delete(id); });
+  }
+  $("sel-count").textContent = picked.length;
+  $("sel-bar").hidden = picked.length === 0;
+  const all = $("chk-all");
+  if (!all) return;
+  all.checked = ids.length > 0 && picked.length === ids.length;
+  all.indeterminate = picked.length > 0 && picked.length < ids.length;
+}
+
+const rosterFiltered = () => {
+  const q = $("roster-search").value.trim().toLowerCase();
+  if (!q) return S.students;
+  return S.students.filter((s) =>
+    [s.name, s.sid, s.cls].some((v) => (v || "").toLowerCase().includes(q))
+  );
+};
+
+function renderRoster() {
+  const rows = rosterFiltered();
+  $("roster-count").textContent =
+    rows.length === S.students.length
+      ? `共 ${S.students.length} 人`
+      : `筛选出 ${rows.length} / ${S.students.length} 人`;
+
+  renderSelBar(rows);
+  $("roster-body").innerHTML = rows
+    .map((s, i) => {
+      let status;
+      if (!s.enabled) status = '<span class="pill off">已停用</span>';
+      else if (s.drawn) status = '<span class="pill drawn">已谈过</span>';
+      else status = '<span class="pill pool">未谈</span>';
+      const reason = (S.pool && S.pool.reasons) ? S.pool.reasons[s.id] : null;
+      if (reason && s.enabled && !s.drawn) {
+        status += '<span class="badge-busy">' +
+          (reason === "in_class" ? "正在上课" : "即将上课") + "</span>";
+      }
+      const picked = S.selected.has(s.id) ? " checked" : "";
+      return `<tr data-sid="${s.id}">
+        <td><input type="checkbox" class="row-chk" data-id="${s.id}"${picked}></td>
+        <td class="dim" style="font-variant-numeric:tabular-nums">${i + 1}</td>
+        <td><input type="text" data-field="name" value="${esc(s.name)}"></td>
+        <td><input type="text" data-field="sid" value="${esc(s.sid)}"></td>
+        <td><input type="text" data-field="cls" value="${esc(s.cls)}"></td>
+        <td>${status}</td>
+        <td>
+          <div class="row-ops">
+            <button class="tiny ghost" data-toggle="${s.id}" data-enabled="${s.enabled ? 0 : 1}">
+              ${s.enabled ? "停用" : "启用"}
+            </button>
+            <button class="tiny danger ghost" data-del="${s.id}">删除</button>
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
+
+/* ================================================================
+   抽取
+   ================================================================ */
+function setStage(name, meta, cls) {
+  const el = $("display-name");
+  el.className = "name " + (cls || "");
+  el.textContent = name;
+  $("display-meta").textContent = meta || "";
+}
+
+/** 滚动动画。抽取结果此时已经落库，动画只负责揭晓。 */
+function rollAnimation() {
+  return new Promise((resolve) => {
+    const el = $("display-name");
+    el.className = "name rolling";
+    $("display-meta").textContent = "";
+    const names = S.poolNames.length ? S.poolNames : ["—"];
+    const total = 1150;
+    const start = performance.now();
+
+    (function tick() {
+      const elapsed = performance.now() - start;
+      if (elapsed >= total) { resolve(); return; }
+      el.textContent = names[Math.floor(Math.random() * names.length)];
+      const p = elapsed / total;
+      setTimeout(tick, 38 + 210 * p * p);   // 越接近结束越慢
+    })();
+  });
+}
+
+async function doDraw() {
+  if (S.busy) return;
+  if (!S.stats.remaining) { toast("所有人都谈过了，点「开始新学期」可开启新一轮", "warn"); return; }
+
+  S.busy = true;
+  renderDrawButton();
+  try {
+    const result = await call("draw", $("chk-ignore").checked);
+    if (!result) {
+      await refresh();
+      toast("没有可抽取的学生了", "warn");
+      return;
+    }
+
+    await rollAnimation();
+
+    const meta = [shortDate(dateOf(result.drawn_at)), result.sid, result.cls]
+      .filter(Boolean).join("　·　");
+    setStage(result.name, meta, "revealed");
+    S.stageName = result.name;
+    beep();
+
+    await refresh();
+    toast(`抽中 ${result.name}，已从抽取池移出，剩余 ${result.remaining} 人`, "ok", 2600);
+  } catch (e) {
+    toast("抽取出错：" + e, "err", 6000);
+  } finally {
+    S.busy = false;
+    renderDrawButton();
+  }
+}
+
+/* ================================================================
+   操作
+   ================================================================ */
+async function doUndo(drawId) {
+  if (S.busy) return;
+  S.busy = true;
+  try {
+    const r = await call("undo", drawId);
+    await refresh();
+    if (S.stageName === r.name) {
+      setStage("准备就绪", idleMeta(), "idle");
+      S.stageName = null;
+    }
+    toast(
+      r.restored ? `已撤回 ${r.name}，放回抽取池` : `已删除记录，但 ${r.name} 已不在名单中`,
+      r.restored ? "ok" : "warn"
+    );
+  } catch (e) {
+    toast("撤回失败：" + e, "err");
+  } finally {
+    S.busy = false;
+    renderDrawButton();
+  }
+}
+
+async function doReset() {
+  if (S.busy) return;
+  const ok = await ask(
+    "开始新学期",
+    `所有学生将回到抽取池。本学期（第 ${S.stats.round} 学期）的抽取记录会归档保留，历史可查；学期序号将变为 ${S.stats.round + 1}。确定继续？`,
+    "开始新学期"
+  );
+  if (!ok) return;
+  S.busy = true;
+  try {
+    const r = await call("start_new_term");
+    S.stageName = null;
+    setStage("准备就绪", idleMeta(), "idle");
+    await refresh();
+    toast(`新学期开始，${r.restored} 人回到抽取池，现在是第 ${r.new_round} 学期`, "ok");
+  } catch (e) {
+    toast("重置失败：" + e, "err");
+  } finally {
+    S.busy = false;
+    renderDrawButton();
+  }
+}
+
+async function doExport() {
+  try {
+    const r = await call("export_csv", null);
+    if (r && r.cancelled) return;
+    toast(r && r.path ? `已导出：${r.path}` : "已导出抽取记录", "ok", 5200);
+  } catch (e) {
+    toast("导出失败：" + e, "err", 6000);
+  }
+}
+
+async function importFromFile() {
+  try {
+    const r = await call("import_file");
+    if (!r || r.cancelled) return;
+    if (r.error) { toast(r.error, "err", 7000); return; }
+    reportImport(r);
+    await refresh();
+  } catch (e) {
+    toast("导入失败：" + e, "err", 7000);
+  }
+}
+
+function reportImport(r) {
+  const n = r.files || 1;
+  let msg = n > 1 ? `已导入 ${n} 个文件，共 ${r.added} 人` : `已导入 ${r.added} 人`;
+  if (r.skipped) msg += `，跳过重复 ${r.skipped} 条`;
+  toast(msg, r.added ? "ok" : "warn", 5000);
+  (r.errors || []).forEach((e) =>
+    toast(`「${e.name}」导入失败：${e.error}`, "err", 10000));
+  (r.warnings || []).forEach((w) => toast("提示：" + w, "warn", 9000));
+  if (r.parsed === 0 && !(r.errors || []).length) {
+    toast("文件里没解析出任何学生，请检查表头或列的内容", "err", 8000);
+  }
+}
+
+/* ================================================================
+   当前时段与池子说明
+   ================================================================ */
+
+const WD_NAMES = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+function hhmm(stamp) {
+  return String(stamp || "").slice(11, 16);
+}
+
+/** 顶部一行：现在是周几、第几节大课、几点到几点。 */
+function renderNow() {
+  // 用本机时钟而不是后端返回的时间戳：这样每秒重绘就能让分钟及时跳，
+  // 不用为了显示时间而反复请求后端（周次/大课仍用后端算出的结果）
+  const now = new Date();
+  const wd = WD_NAMES[now.getDay() === 0 ? 7 : now.getDay()] || "";
+  const clock = pad2(now.getHours()) + ":" + pad2(now.getMinutes());
+  let seg = "";
+  if (S.currentBlock) {
+    seg = " · <b>" + esc(S.currentBlock.name) + "</b> " +
+          esc(S.currentBlock.start) + "–" + esc(S.currentBlock.end);
+  } else if (S.nextBlock && S.nextBlock.start) {
+    seg = " · 课间（下一节 " + esc(S.nextBlock.start) + " 开始）";
+  } else if (S.scheduleConfigured) {
+    seg = " · 今天的课已结束";
+  }
+  const wk = (S.week != null) ? " · 第 " + S.week + " 周" : "";
+  $("nowline").innerHTML = "现在 " + wd + " " + clock + wk + seg;
+}
+
+/** 池子说明：为什么此刻可抽的人只有这么多。 */
+function renderPoolNote() {
+  const box = $("pool-note");
+  const p = S.pool || {};
+  const c = p.counts || {};
+  const ignore = $("chk-ignore").checked;
+
+  $("override-wrap").hidden = !S.scheduleConfigured;
+
+  if (!S.stats.total) {
+    box.className = "pool-note";
+    box.textContent = "";
+    return;
+  }
+
+  const busy = (c.in_class || 0) + (c.soon || 0);
+  const warnWeeks = p.week_unresolved
+    ? '<span class="warn-line">课表里用了周次，但还没设「学期开始日期」，' +
+      '暂时按每周有课处理（偏保守）。请到「课表」页填写第 1 周的日期。</span>'
+    : "";
+  const parts = [];
+  parts.push('未谈 <span class="num">' + p.untalked + '</span> 人');
+  parts.push('已谈 <span class="num">' + (c.drawn || 0) + '</span> 人');
+  if (c.disabled) parts.push('已停用 <span class="num">' + c.disabled + '</span> 人');
+
+  let line = parts.join(" · ");
+  if (ignore) line += "　（已勾选忽略课表）";
+  else if (busy) line += "　—— 其中 <span class=\"num\">" + busy + "</span> 人此刻有课";
+
+  if (c.available > 0) {
+    box.className = warnWeeks ? "pool-note warn" : "pool-note";
+    box.innerHTML = warnWeeks + line;
+    return;
+  }
+
+  // 池子为空：必须说清是哪一类原因，否则会以为程序坏了
+  box.className = "pool-note warn";
+  let reason;
+  if (p.untalked === 0) {
+    reason = "本学期的同学都已经谈过了。要开始新一轮请点「开始新学期」。";
+  } else if (busy > 0 && !ignore) {
+    const bits = [];
+    if (c.in_class) bits.push('<span class="num">' + c.in_class + '</span> 人正在上课');
+    if (c.soon) {
+      let s = '<span class="num">' + c.soon + '</span> 人马上要上课';
+      if (p.soon_detail) {
+        s += "（" + esc(p.soon_detail.name) + " 还有 " + p.soon_detail.minutes +
+             " 分钟到「" + esc(p.soon_detail.block) + "」）";
+      }
+      bits.push(s);
+    }
+    reason = "未谈的 " + p.untalked + " 人此刻都不可抽：" + bits.join("，") + "。" +
+             "离下节课不足 " + p.min_talk_minutes + " 分钟就不算空闲。";
+    if (S.nextFree && S.nextFree.at) {
+      reason += "　下一段空闲大约 " + esc(S.nextFree.at) + " 之后。";
+    }
+    reason += "　如确有急事，可勾选下面的「忽略课表，强制抽取」。";
+  } else {
+    reason = "暂时没有可抽的同学。";
+  }
+  box.innerHTML = warnWeeks + "<b>此刻可抽 0 人</b><br>" + reason;
+}
+
+/* ================================================================
+   课表页
+   ================================================================ */
+
+const WEEK_LABELS = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+const WEEKDAYS_ALL = [1, 2, 3, 4, 5, 6, 7];
+let SCHED = null;
+
+/** 大课表头的简写：上①上②下①下②；大课数量不是 4 个时退回序号。 */
+function shortBlockLabel(b, i) {
+  const circled = "①②③④⑤⑥⑦⑧";
+  if (i < 6) {
+    // 上①② / 下①② / 晚①② —— 与作息表里的「上午/下午/晚上第 N 节大课」对应
+    const halves = ["上", "上", "下", "下", "晚", "晚"];
+    return halves[i] + circled.charAt(i % 2);
+  }
+  return String(b.idx);
+}
+
+async function loadSchedule() {
+  SCHED = await call("schedule");
+  $("inp-min-talk").value = SCHED.minTalkMinutes;
+  $("inp-term-start").value = SCHED.termStart || "";
+  $("week-hint").textContent = SCHED.termStart
+    ? (SCHED.week != null ? "现在是第 " + SCHED.week + " 周" : "学期还没开始")
+    : "未设置：用了周次的课表会按每周有课处理";
+  const n = Object.keys(SCHED.grid.cells).length;
+  $("sched-hint").textContent = SCHED.grid.configured
+    ? "已录 " + SCHED.grid.classes.length + " 个班 · " + n + " 个有课时段"
+    : "还没录课表 —— 未录课表时不会排除任何人，与以前一样";
+  const t = SCHED.targets || {classes: [], own: []};
+  const clsPart = (t.classes || []).map(function (c) {
+    return c.cls + "（" + c.slots + " 个时段）";
+  }).join("、");
+  const ownPart = (t.own || []).map(function (o) {
+    return o.name + (o.cls ? "·" + o.cls : "");
+  }).join("、");
+  $("sched-owner").textContent =
+    "班级课表：" + (clsPart || "（空）") +
+    "　｜　个人课表：" + (ownPart || "（无）");
+  renderBlocks();
+  renderScheduleGrid();
+  renderExcForm();
+  renderExceptions();
+}
+
+function renderBlocks() {
+  const rows = SCHED.grid.blocks.map((b) => (
+    '<tr data-idx="' + b.idx + '">' +
+    '<td class="dim">' + b.idx + "</td>" +
+    '<td><input type="text" data-f="name" value="' + esc(b.name) + '"></td>' +
+    '<td><input type="time" data-f="start" value="' + esc(b.start) + '"></td>' +
+    '<td><input type="time" data-f="end" value="' + esc(b.end) + '"></td>' +
+    "</tr>"
+  )).join("");
+  $("blocks-table").innerHTML =
+    "<thead><tr><th></th><th>名称</th><th>开始</th><th>结束</th></tr></thead>" +
+    "<tbody>" + rows + "</tbody>";
+}
+
+function renderScheduleGrid() {
+  const g = SCHED.grid;
+  const head1 = "<thead><tr><th class=\"cls-h\" rowspan=\"2\">班级</th>" +
+    WEEKDAYS_ALL.map((d) => '<th colspan="' + g.blocks.length + '">' + WEEK_LABELS[d] + "</th>").join("") +
+    "</tr><tr>" +
+    WEEKDAYS_ALL.map(() => g.blocks.map((b, i) => (
+      '<th class="' + (i === 0 ? "day-start" : "") + '" title="' +
+      esc(b.name) + " " + esc(b.start) + "–" + esc(b.end) + '">' +
+      shortBlockLabel(b, i) + "</th>"
+    )).join("")).join("") + "</tr></thead>";
+
+  if (!g.classes.length) {
+    $("sched-grid").innerHTML = head1 +
+      "<tbody><tr><td class=\"dim\" style=\"padding:14px\" colspan=\"29\">名单里还没有班级，请先导入名单</td></tr></tbody>";
+    return;
+  }
+
+  const body = g.classes.map((cls) => {
+    const cells = WEEKDAYS_ALL.map((d) => g.blocks.map((b, bi) => {
+      const c = g.cells[cls + "|" + d + "|" + b.idx] || {};
+      const note = c.note ? '<span class="note-flag" title="' + esc(c.note) + '">' + esc(c.note) + "</span>" : "";
+      const wk = (c.has_class && c.weeks)
+        ? '<span class="week-flag" title="仅这些周有课：' + esc(c.weeks) + '">' + esc(c.weeks) + "周</span>"
+        : "";
+      return '<td class="cell' + (c.has_class ? " on" : "") +
+             (bi === 0 ? " day-start" : "") +
+             '" data-cls="' + esc(cls) +
+             '" data-wd="' + d + '" data-block="' + b.idx + '">' +
+             '<span class="box">✓</span>' + note + wk + "</td>";
+    }).join("")).join("");
+    return '<tr><td class="cls-c">' + esc(cls) + "</td>" + cells + "</tr>";
+  }).join("");
+
+  $("sched-grid").innerHTML = head1 + "<tbody>" + body + "</tbody>";
+}
+
+function renderExcForm() {
+  if (!SCHED) return;
+  const students = S.students.slice().sort((a, b) =>
+    (a.cls || "").localeCompare(b.cls || "", "zh") || (a.name || "").localeCompare(b.name || "", "zh"));
+  const opts = students.map((s) =>
+    '<option value="' + s.id + '">' + esc(s.name) + (s.cls ? " · " + esc(s.cls) : "") + "</option>").join("");
+  $("exc-form").innerHTML =
+    '<select id="exc-student">' + opts + "</select>" +
+    '<select id="exc-weekday">' + WEEKDAYS_ALL.map((d) =>
+      '<option value="' + d + '">' + WEEK_LABELS[d] + "</option>").join("") + "</select>" +
+    '<select id="exc-block">' + SCHED.grid.blocks.map((b) =>
+      '<option value="' + b.idx + '">' + esc(b.name) + "</option>").join("") + "</select>" +
+    '<select id="exc-type"><option value="1">额外有课</option><option value="0">这节不上</option></select>' +
+    '<input type="text" id="exc-note" placeholder="备注，如：选修·心理学" style="width:190px">' +
+    '<button id="btn-add-exc" class="primary">添加例外</button>';
+  $("btn-add-exc").onclick = async () => {
+    const sid = Number($("exc-student").value);
+    const wd = Number($("exc-weekday").value);
+    const blk = Number($("exc-block").value);
+    const has = $("exc-type").value === "1";
+    const note = $("exc-note").value.trim();
+    if (!has && !note) {
+      toast("「这节不上」建议填个备注，否则容易忘记为什么加", "warn", 4200);
+    }
+    try {
+      await call("set_exception", sid, wd, blk, has, note);
+      await loadSchedule();
+      await refresh();
+      toast("已添加例外", "ok", 1800);
+    } catch (e) {
+      toast("添加失败：" + (e && e.message ? e.message : e), "err");
+    }
+  };
+}
+
+function renderExceptions() {
+  const ex = (SCHED && SCHED.exceptions) || [];
+  if (!ex.length) {
+    $("exc-table").innerHTML =
+      '<tbody><tr><td class="dim" style="padding:12px">还没有例外记录。全班课表一致时不需要用到这里。</td></tr></tbody>';
+    return;
+  }
+  $("exc-table").innerHTML =
+    "<thead><tr><th>姓名</th><th>班级</th><th>星期</th><th>大课</th><th>情况</th><th>备注</th><th></th></tr></thead>" +
+    "<tbody>" + ex.map((e) => (
+      "<tr>" +
+      "<td>" + esc(e.name) + "</td>" +
+      '<td class="dim">' + esc(e.cls) + "</td>" +
+      "<td>" + (WEEK_LABELS[e.weekday] || e.weekday) + "</td>" +
+      "<td>第 " + e.block + " 节大课</td>" +
+      "<td>" + (e.has_class
+        ? '<span class="pill drawn">额外有课</span>'
+        : '<span class="pill pool">这节不上</span>') + "</td>" +
+      '<td class="dim">' + esc(e.note) + "</td>" +
+      '<td><button class="tiny danger ghost" data-del-exc="' +
+      e.student_id + "|" + e.weekday + "|" + e.block + '">删除</button></td>' +
+      "</tr>"
+    )).join("") + "</tbody>";
+}
+
+async function bindSchedulePage() {
+  // 点方格切换有课/没课
+  $("sched-grid").addEventListener("click", async (ev) => {
+    const cell = ev.target.closest("td.cell");
+    if (!cell || cell.classList.contains("saving")) return;
+    const cls = cell.getAttribute("data-cls");
+    const wd = Number(cell.getAttribute("data-wd"));
+    const blk = Number(cell.getAttribute("data-block"));
+    const key = cls + "|" + wd + "|" + blk;
+    const existing = (SCHED && SCHED.grid.cells[key]) || {};
+
+    if ($("chk-edit-weeks").checked) {
+      const cur = existing.weeks || "";
+      const v = await askText("设置周次",
+        "输入这个时段有课的周次，例如 1-8,10-16 或 单/双。" +
+        "留空表示每周都有课。格子会显示填写的周次。", cur || "1-16");
+      if (v === null) return;
+      try {
+        await call("set_schedule", cls, wd, blk, true, existing.note || "", v);
+        await loadSchedule();
+        await refresh();
+        toast("周次已设为：" + (v.trim() || "每周"), "ok", 2400);
+      } catch (e) {
+        toast("保存失败：" + (e && e.message ? e.message : e), "err");
+      }
+      return;
+    }
+
+    const on = cell.classList.contains("on");
+    cell.classList.add("saving");
+    try {
+      await call("set_schedule", cls, wd, blk, !on, "", "");
+      // 乐观更新，避免整表重绘造成闪动
+      cell.classList.toggle("on", !on);
+      if (SCHED) {
+        if (on) delete SCHED.grid.cells[key];
+        else SCHED.grid.cells[key] = { has_class: 1, weeks: "", note: "" };
+      }
+      await refresh();
+    } catch (e) {
+      toast("保存失败：" + (e && e.message ? e.message : e), "err");
+    } finally {
+      cell.classList.remove("saving");
+    }
+  });
+
+  // 作息时间：改完失焦即保存
+  $("blocks-table").addEventListener("change", async (ev) => {
+    const inp = ev.target;
+    if (inp.tagName !== "INPUT") return;
+    const idx = Number(inp.closest("tr").getAttribute("data-idx"));
+    const field = inp.getAttribute("data-f");
+    try {
+      const payload = {};
+      payload[field] = inp.value;
+      await call("set_block", idx, payload.name ?? null, payload.start ?? null, payload.end ?? null);
+      await loadSchedule();
+      await refresh();
+      toast("作息已保存", "ok", 1600);
+    } catch (e) {
+      toast("保存失败：" + (e && e.message ? e.message : e), "err");
+    }
+  });
+
+  $("exc-table").addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("button[data-del-exc]");
+    if (!btn) return;
+    const parts = btn.getAttribute("data-del-exc").split("|").map(Number);
+    await call("clear_exception", parts[0], parts[1], parts[2]);
+    await loadSchedule();
+    await refresh();
+    toast("已删除例外", "ok", 1600);
+  });
+
+  /* 两项设置共用一个「保存设置」，避免两个长得一样的保存按钮 */
+  $("btn-save-settings").onclick = async () => {
+    const term = $("inp-term-start").value;
+    const mins = parseInt($("inp-min-talk").value, 10);
+    if (isNaN(mins) || mins < 0) {
+      toast("「离下节课不足」请填一个不小于 0 的分钟数", "err");
+      return;
+    }
+    try {
+      await call("set_term_start", term);
+      await call("set_min_talk_minutes", mins);
+      await loadSchedule();
+      await refresh();
+      toast("设置已保存" +
+            (term ? "：第 1 周从 " + term + " 开始" : "：已清除学期开始日期") +
+            "；离下节课不足 " + mins + " 分钟不算空闲", "ok", 4600);
+    } catch (e) {
+      toast("保存失败：" + (e && e.message ? e.message : e), "err");
+    }
+  };
+
+  $("btn-sched-export").onclick = async () => {
+    const r = await call("export_schedule");
+    if (r && r.cancelled) return;
+    if (r && r.error) { toast(r.error, "err", 6000); return; }
+    toast(r && r.path ? "课表已导出：" + r.path : "课表已导出", "ok", 5200);
+  };
+
+  $("btn-sched-import").onclick = async () => {
+    const r = await call("import_schedule");
+    if (!r || r.cancelled) return;
+    if (r.error) { toast(r.error, "err", 7000); return; }
+    await loadSchedule();
+    await refresh();
+    const nf = r.files || 1;
+    toast((nf > 1 ? "已导入 " + nf + " 个文件，共 " : "已导入 ") + r.added + " 个课时" +
+          (r.exceptions ? "，" + r.exceptions + " 条例外" : ""), "ok", 5200);
+    if (r.target) toast(r.target, "info", 9000);
+    (r.details || []).forEach((d) => {
+      if (d.error) toast("「" + d.name + "」导入失败：" + d.error, "err", 11000);
+    });
+    (r.errors || []).forEach((e) => toast("跳过：" + e, "warn", 8000));
+    if (!r.added && !r.exceptions && !(r.errors || []).length) {
+      toast("文件里没解析出任何课时，请检查格式", "err", 8000);
+    }
+  };
+
+  $("btn-clear-own").onclick = async () => {
+    const t = (SCHED && SCHED.targets && SCHED.targets.own) || [];
+    if (!t.length) { toast("目前没有个人课表", "warn"); return; }
+    const ok = await ask("清除个人课表",
+      "将删除这 " + t.length + " 名学生的个人课表（" +
+      t.map(function (o) { return o.name; }).join("、") +
+      "），之后他们改回按班级课表判断。班级课表不受影响。确定继续？", "清除");
+    if (!ok) return;
+    await call("clear_student_schedule", null);
+    await loadSchedule();
+    await refresh();
+    toast("已清除 " + t.length + " 名学生的个人课表", "ok");
+  };
+
+  $("btn-sched-clear").onclick = async () => {
+    const ok = await ask("清空课表",
+      "将删除全部班级课表和个别例外。名单、谈话记录不受影响。确定继续？", "清空");
+    if (!ok) return;
+    const r = await call("clear_schedule", true);
+    await loadSchedule();
+    await refresh();
+    toast("已清空课表（" + r.deleted + " 个课时）", "ok");
+  };
+
+  $("chk-ignore").onchange = async () => {
+    await refresh();
+  };
+}
+
+/** 定期向后端要一次时间和池子构成，只更新与时间相关的部分。 */
+async function tick() {
+  if (S.busy || !$("modal").hidden) return;      // 别打断正在进行的操作
+  try {
+    const c = await call("clock");
+    S.now = c.now;
+    S.week = c.week;
+    S.currentBlock = c.currentBlock;
+    S.nextFree = c.nextFree;
+    S.nextBlock = c.nextBlock;
+    S.pool = c.pool;
+    renderStats();          // 内部会重绘时间行与池子说明
+    renderDrawButton();
+  } catch (e) {
+    /* 静默失败：下一次 tick 再试，不要因为定时任务弹错误提示 */
+  }
+}
+
+(async function boot() {
+  /* 工具栏 */
+  $("btn-draw").onclick = doDraw;
+  $("btn-reset").onclick = doReset;
+  $("btn-export").onclick = doExport;
+  $("chk-sound").onchange = (e) => { soundOn = e.target.checked; if (soundOn) beep(); };
+
+  /* 抽取历史：撤回 */
+  $("history-list").addEventListener("click", (e) => {
+    const id = e.target.getAttribute && e.target.getAttribute("data-undo");
+    if (id) doUndo(Number(id));
+  });
+
+  /* 视图切换 */
+  document.querySelectorAll(".tabs button").forEach((b) => {
+    b.onclick = () => {
+      document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
+      const v = b.dataset.view;
+      $("view-draw").hidden = v !== "draw";
+      $("view-roster").hidden = v !== "roster";
+      $("view-schedule").hidden = v !== "schedule";
+      if (v === "schedule") loadSchedule().catch((e) => toast("课表加载失败：" + e, "err"));
+      // 名单页的「正在上课」标记依赖池子数据，切过去时刷新一次
+      if (v === "roster") tick();
+    };
+  });
+
+  /* 课表页：事件绑定 */
+  await bindSchedulePage();
+
+  /* 名单：勾选与批量操作 */
+  $("chk-all").onchange = () => {
+    const rows = rosterFiltered();
+    if ($("chk-all").checked) rows.forEach((s) => S.selected.add(s.id));
+    else rows.forEach((s) => S.selected.delete(s.id));
+    renderRoster();
+  };
+
+  $("roster-body").addEventListener("change", (ev) => {
+    const cb = ev.target;
+    if (!cb.classList || !cb.classList.contains("row-chk")) return;
+    const id = Number(cb.getAttribute("data-id"));
+    if (cb.checked) S.selected.add(id);
+    else S.selected.delete(id);
+    renderSelBar(rosterFiltered());
+  });
+
+  async function batchEnable(enabled) {
+    const ids = Array.from(S.selected);
+    if (!ids.length) return;
+    try {
+      const r = await call("set_enabled_many", ids, enabled);
+      await refresh();
+      toast("已" + (enabled ? "启用" : "停用") + " " + r.updated + " 人", "ok", 2600);
+    } catch (e) {
+      toast("批量操作失败：" + (e && e.message ? e.message : e), "err");
+    }
+  }
+
+  async function batchDelete() {
+    const ids = Array.from(S.selected);
+    if (!ids.length) return;
+    const names = S.students.filter((s) => S.selected.has(s.id)).map((s) => s.name);
+    const preview = names.slice(0, 8).join("、") +
+                    (names.length > 8 ? " 等 " + names.length + " 人" : "");
+    const ok = await ask("批量删除学生",
+      "确定把选中的 " + ids.length + " 名学生（" + preview +
+      "）从名单里彻底删除吗？已有的抽取记录会保留姓名，但此操作无法撤销。", "删除");
+    if (!ok) return;
+    try {
+      const r = await call("delete_students", ids);
+      S.selected.clear();
+      await refresh();
+      toast("已删除 " + r.deleted + " 名学生", "ok", 3200);
+    } catch (e) {
+      toast("批量删除失败：" + (e && e.message ? e.message : e), "err");
+    }
+  }
+
+  $("btn-sel-disable").onclick = () => batchEnable(false);
+  $("btn-sel-enable").onclick = () => batchEnable(true);
+  $("btn-sel-delete").onclick = batchDelete;
+  $("btn-sel-clear").onclick = () => { S.selected.clear(); renderRoster(); };
+
+  /* 名单：搜索与行内编辑 */
+  $("roster-search").oninput = renderRoster;
+
+  $("roster-body").addEventListener("change", async (e) => {
+    const input = e.target;
+    // 只处理可编辑的文本单元格；勾选框归下面的勾选逻辑管
+    if (input.tagName !== "INPUT" || input.type === "checkbox") return;
+    if (!input.dataset || !input.dataset.field) return;
+    const tr = input.closest("tr");
+    const id = Number(tr.dataset.sid);
+    const field = input.dataset.field;
+    const student = S.students.find((s) => s.id === id);
+    if (!student || student[field] === input.value) return;
+    if (field === "name" && !input.value.trim()) {
+      toast("姓名不能为空", "err");
+      input.value = student.name;
+      return;
+    }
+    try {
+      await call("update_student", id, field, input.value);
+      await refresh();
+      toast("已保存", "ok", 1400);
+    } catch (err) {
+      toast("保存失败：" + err, "err");
+      await refresh();
+    }
+  });
+
+  /* 名单：停用 / 删除 */
+  $("roster-body").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const tgl = btn.getAttribute("data-toggle");
+    const del = btn.getAttribute("data-del");
+
+    if (tgl) {
+      const id = Number(tgl);
+      const enable = btn.getAttribute("data-enabled") === "1";
+      await call("set_enabled", id, enable);
+      await refresh();
+      toast(enable ? "已启用，回到抽取池" : "已停用，不参与抽取", "ok", 2200);
+    }
+
+    if (del) {
+      const id = Number(del);
+      const s = S.students.find((x) => x.id === id);
+      if (!s) return;
+      const ok = await ask(
+        "永久删除学生",
+        `确定把「${s.name}」从名单中彻底删除吗？\n\n已有的抽取记录会保留，但此操作无法撤销。`,
+        "删除"
+      );
+      if (ok) {
+        await call("delete_student", id);
+        await refresh();
+        toast(`已删除 ${s.name}`, "ok");
+      }
+    }
+  });
+
+  /* 名单：新增 */
+  $("btn-add").onclick = async () => {
+    const text = await askText("新增学生", "按「姓名,学号,班级」输入，学号和班级可省略。", "张三,2024240101,计算机2401");
+    if (text === null) return;
+    if (!text.trim()) return;
+    const r = await call("import_text", text);
+    reportImport(r);
+    await refresh();
+  };
+
+  /* 名单：导入 */
+  $("btn-import-file").onclick = importFromFile;
+  $("btn-import-paste").onclick = async () => {
+    const text = await askText(
+      "粘贴文本导入",
+      "每行一个学生，支持「姓名,学号,班级」，也支持只粘姓名。",
+      "张三,2024240101,计算机2401\n李四,2024240102,计算机2401"
+    );
+    if (text === null || !text.trim()) return;
+    const r = await call("import_text", text);
+    reportImport(r);
+    await refresh();
+  };
+
+  /* 备份 */
+  $("btn-backup-out").onclick = async () => {
+    const r = await call("export_backup");
+    if (r && r.cancelled) return;
+    toast(r && r.path ? `备份已保存：${r.path}` : "备份已导出", "ok", 5200);
+  };
+  $("btn-backup-in").onclick = async () => {
+    const ok = await ask("导入备份", "导入备份会覆盖当前全部名单和抽取记录。确定继续？", "覆盖导入");
+    if (!ok) return;
+    const r = await call("import_backup");
+    if (!r || r.cancelled) return;
+    if (r.error) { toast(r.error, "err", 7000); return; }
+    S.stageName = null;
+    setStage("准备就绪", idleMeta(), "idle");
+    await refresh();
+    toast(`备份已恢复：${r.students} 名学生，${r.draws} 条记录`, "ok", 5000);
+  };
+
+  /* 清空名单 */
+  $("btn-clear").onclick = async () => {
+    const ok = await ask("清空名单", "将删除全部学生。抽取历史会保留。确定继续？", "清空");
+    if (!ok) return;
+    const r = await call("clear_students");
+    S.stageName = null;
+    setStage("准备就绪", idleMeta(), "idle");
+    await refresh();
+    toast(`已清空 ${r.deleted} 名学生`, "ok");
+  };
+
+  /* 定时刷新：
+     界面原来只在启动/抽取等动作后才更新，导致时间和「此刻可抽」停在那一刻。
+     - 本机时钟每秒重绘一次，分钟能及时跳
+     - 池子构成每 20 秒向后端要一次（同学上下课会让可抽人数变化）
+     - 回到窗口时立刻刷新一次
+     抽取动画进行中或弹窗打开时跳过，避免打断操作。 */
+  setInterval(renderNow, 1000);
+  setInterval(tick, 20000);
+  window.addEventListener("focus", tick);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) tick();
+  });
+
+  /* 键盘快捷键 */
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return;
+    if (e.code === "Space" || e.code === "Enter" || e.key === " ") {
+      if ($("view-draw").hidden) return;
+      e.preventDefault();
+      if (!$("modal").hidden) return;
+      doDraw();
+    }
+  });
+
+  /* 初始化：等 JS 桥就绪后再拉数据。
+     冷启动时桥可能来得晚，失败要重试几次，不能一次失败就卡死。 */
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      await resolveShell();
+      await refresh();
+      setStage(S.stats.total ? "准备就绪" : "等待导入名单", idleMeta(), "idle");
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      console.error("初始化第 " + attempt + " 次失败：", e);
+      if (attempt < 4) await new Promise((r) => setTimeout(r, 900 * attempt));
+    }
+  }
+  if (lastErr) {
+    SHELL = null;                    // 清掉可能判断错的外壳类型，下次调用重新判定
+    setStage("无法连接后端", "", "idle");
+    $("hint").textContent = "请点「开始抽取」重试，或关闭程序后重新打开";
+    toast("初始化失败：" + (lastErr && lastErr.message ? lastErr.message : lastErr),
+          "err", 12000);
+  }
+})();
+</script>
+</body>
+</html>
